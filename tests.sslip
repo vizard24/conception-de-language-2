@@ -1,0 +1,15 @@
+2				    ; Simple Snum
+true				; Simple boolean
++					; Simple symbol
+(+ 2 4)             ; 6 type : Tnum 6
+(if (< 1 2) 1 0)    ; 1 type : Tnum 1
+;(if 42 1 0)                  ; Erreur: condition non booléenne (nombre)
+;(if (+ 1 2) true false)      ; Erreur: condition non booléenne (résultat d'addition)
+(let y 3 (+ 6 y))   ; 9 type : Tnum 9
+;(let y true (+ 2 y))   ; erreur on essaye d'ajouter un booléen à un int
+;((fob (x y) (+ x y)) 1 4)   ; 5 type : Tnum 5
+;(fix ((double (x) (* x 2))) (double 5)) ; ↝ 10 fix exp simple
+
+(if true 1 0) ; Résultat attendu : 1 (type : Tnum 1)
+
+(fix ((sum (x y) (+ x y))) (sum 3 4)) ; Résultat attendu : 7 (type : Tnum 7)
