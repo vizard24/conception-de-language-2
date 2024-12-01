@@ -34,6 +34,9 @@ import Text.ParserCombinators.Parsec
 import Data.Char                -- Conversion de Chars de/vers Int et autres.
 import System.IO                -- Pour stdout, hPutStr
 
+import Debug.Trace
+
+
 
 ---------------------------------------------------------------------------
 -- La représentation interne des expressions de notre language           --
@@ -244,24 +247,32 @@ s2l (Snode (Ssym "let") _) =
 
 -- Gestion des fob
 s2l (Snode (Ssym "fob") [args, body]) =
-    let getVars (Snode _ xs) = map (\(Ssym x) -> x) xs
+    trace ("Parsing fob: args = " ++ show args ++ ", body = " ++ show body) $
+    let getVars (Snode _ xs) = 
+            map (\x -> case x of
+                        Ssym v -> v
+                        _ -> error "Les paramètres de la fonction doivent être des symboles") xs
         getVars _ = error "Liste de variables malformée"
     in Lfob (map (\v -> (v, Tnum)) (getVars args)) (s2l body)
-s2l (Snode (Ssym "fob") _) = 
-    error "Syntaxe de fob incorrecte"
 
--- Gestion des fix
+
+
+-- Gestion des déclarations récursives fix (Lfix)
 s2l (Snode (Ssym "fix") [decls, body]) =
     let sdecl2ldecl (Snode (Snode (Ssym v) args) [e]) =
             (v, Lfob (map (\(Ssym x) -> (x, Tnum)) args) (s2l e))
-        sdecl2ldecl se = error ("Declaration Psil inconnue: " ++ showSexp se)
+        sdecl2ldecl se = error ("Déclaration inconnue dans 'fix' : " ++ showSexp se)
     in Lfix (map sdecl2ldecl (s2list decls)) (s2l body)
-
+s2l (Snode (Ssym "fix") _) = 
+    error "Syntaxe de 'fix' incorrecte"
 -- Gestion des appels de fobjets
 s2l (Snode f args) = Lsend (s2l f) (map s2l args)
 
 -- ¡¡COMPLÉTER ICI!!
 s2l se = error ("Expression Psil inconnue: " ++ showSexp se)
+
+
+
 
 ---------------------------------------------------------------------------
 -- Représentation du contexte d'exécution                                --
@@ -378,6 +389,13 @@ check c env (Lfix decls body) =
                 _ -> error "Erreur de typage lors de la vérification pour fix"
             ) [] decls
     in check c (verifiedEnv ++ env) body
+
+
+    -- Vérification des annotations de type
+check c env (Ltype e t) = 
+    let t' = check c env e
+    in if t == t' then t else Terror ("Type mismatch: attendu " ++ show t ++ ", trouvé " ++ show t')
+
 ---------------------------------------------------------------------------
 -- Pré-évaluation
 ---------------------------------------------------------------------------
@@ -449,8 +467,10 @@ l2d env (Lsend f args) = Dsend (l2d env f) (map (l2d env) args)
 -- Évaluateur                                                            --
 ---------------------------------------------------------------------------
 
+-- Type de l'environnement des variables : une liste de valeurs
 type VEnv = [Value]
 
+-- Évaluation d'une expression dans un environnement donné
 eval :: VEnv -> Dexp -> Value
 -- Évaluation des constantes
 eval _ (Dnum n) = Vnum n
@@ -473,11 +493,22 @@ eval env (Dlet e1 e2) =
     let v1 = eval env e1
     in eval (v1 : env) e2
 
--- Évaluation des fonctions fob
-eval env (Dfob argCount body) =
-    Vfob env argCount body
+-- Évaluation des appels de fonctions fob
+eval env (Dsend func args) =
+    case eval env func of
+        Vfob closureEnv argCount body -> 
+            -- Vérification du nombre d'arguments
+            if length args == argCount then
+                let argVals = map (eval env) args
+                    -- Ajouter directement les valeurs des arguments à l'environnement
+                    newEnv = argVals ++ closureEnv -- L'environnement des arguments + l'environnement de la fonction
+                in eval newEnv body
+            else
+                error ("Nombre incorrect d'arguments pour la fonction fob : attendu " ++ show argCount ++
+                       ", reçu " ++ show (length args))
+        _ -> error "Tentative d'appel d'une fonction non fob : l'objet appelé n'est pas une fonction de type Vfob"
 
--- Évaluation des appels de fonctions
+-- Évaluation des appels de fonctions générales (non fob)
 eval env (Dsend f args) =
     case eval env f of
         Vbuiltin func -> func (map (eval env) args)
@@ -491,13 +522,9 @@ eval env (Dsend f args) =
 -- Évaluation des déclarations récursives fix
 eval env (Dfix decls body) =
     let tempEnv = replicate (length decls) (error "Référence circulaire dans fix") -- Déclaration temporaire
-        -- Convertir les déclarations en Dexp et évaluer
-        fixedValues = map (eval tempEnv) decls
+        fixedValues = map (eval (fixedValues ++ env)) decls
     in eval (fixedValues ++ env) body
-
-
-
-
+   
 -- Fonction auxiliaire pour remplacer une valeur dans une liste
 replace :: Int -> [a] -> [a] -> [a]
 replace idx newVal xs = take idx xs ++ newVal ++ drop (idx + 1) xs
