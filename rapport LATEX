@@ -1,0 +1,117 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{geometry}
+
+% Définit les marges du document
+\geometry{top=1in, bottom=1in, left=1in, right=1in}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue},
+  stringstyle=\color{red},
+  commentstyle=\color{gray},
+  frame=single,
+  showstringspaces=false
+}
+
+\title{Rapport : Implémentation d'un langage fonctionnel \\ IFT2035 TP2}
+\author{Mohamed | Yaovi Florient Gadedjro (20225447)}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{Introduction}
+
+Dans ce projet, notre but était de compléter un langage fonctionnel avec des outils comme la vérification des types, la conversion des expressions avec les indices de De Bruijn, et l’évaluation des fonctions récursives. Ce projet a été une vraie aventure, avec des réussites et des erreurs qui nous ont bien fait réfléchir. À chaque étape, nous avons appris à mieux maîtriser les concepts de la programmation fonctionnelle.
+
+\section{Sucre syntaxique : \texttt{l2d} et conversion}
+
+La première étape a été d’adapter la fonction \texttt{l2d} pour gérer les annotations de type etait ignorer gerer les annotations.
+
+\begin{lstlisting}[language=Haskell]
+l2d env (Ltype expr _) = l2d env expr  -- Ignorer les annotations de type
+\end{lstlisting}
+
+Cela a permis de garder notre conversion légère et d’éviter des complications inutiles. En gros, on ne se prend pas la tête avec ce qui ne sert qu'à la vérification des types.
+
+\section{Vérification des types avec \texttt{check}}
+
+Ensuite, nous avons travaillé sur \texttt{check}, notre "police des types". Pour les variables, c’est basique : si elle est dans l’environnement, on retourne son type. Sinon, erreur directe.
+
+\begin{lstlisting}[language=Haskell]
+check _ env (Lvar v) = 
+    case lookup v env of
+        Just t -> t
+        Nothing -> error ("Variable non définie: " ++ v)
+\end{lstlisting}
+
+Les \texttt{if}, eux, demandent plus de rigueur. La condition doit être un booléen, et les deux branches doivent avoir le même type. Sinon, on n’y touche pas.
+
+\begin{lstlisting}[language=Haskell]
+check c env (Ltest cond then_ else_) =
+    if check c env cond /= Tbool 
+    then error "La condition doit être un booléen"
+    else if check c env then_ /= check c env else_
+         then error "Branches avec des types différents"
+         else check c env then_
+\end{lstlisting}
+
+Pour les \texttt{let}, on ajoute la nouvelle variable à l’environnement avant de continuer :
+
+\begin{lstlisting}[language=Haskell]
+check c env (Llet var e1 e2) =
+    let t1 = check c env e1
+        env' = (var, t1) : env
+    in check c env' e2
+\end{lstlisting}
+
+Enfin, les fonctions récursives \texttt{fix} ont été un défi. On commence par "deviner" les types, puis on vérifie qu’ils sont bons avant d’évaluer le corps.
+
+\begin{lstlisting}[language=Haskell]
+check c env (Lfix decls body) =
+    let tempEnv = [(var, Terror "Type temporaire") | (var, _) <- decls] ++ env
+    in check c (foldl (\acc (v, e) -> ...) tempEnv decls ++ env) body
+\end{lstlisting}
+
+\section{Évaluation avec \texttt{eval}}
+
+Pour l’évaluation, il a fallu gérer l’environnement avec précision, surtout pour les fonctions récursives. Voici comment on a évalué les déclarations dans \texttt{fix} :
+
+\begin{lstlisting}[language=Haskell]
+eval env (Dfix decls body) =
+    let env' = foldl (\acc decl -> eval acc decl : acc) env decls
+    in eval env' body
+\end{lstlisting}
+
+Avec \texttt{foldl}, on évalue chaque déclaration récursive dans l’environnement temporaire, puis on traite le corps de la fonction avec cet environnement enrichi. Cela évite des erreurs comme "Tentative d'appel d'une fonction non fob".
+
+\section{Surprises et difficultés}
+
+En voyant nos premières erreurs. Par exemple, "Nombre incorrect d'arguments" nous a appris à bien gérer les appels de fonction. Les tests simples comme \texttt{(+ 2 4)} ont bien marché, mais ceux avec \texttt{fix} ont révélé des failles dans notre gestion des environnements. Chaque erreur nous a poussés à ajuster notre code, à comprendre les subtilités des environnements et à renforcer notre logique.
+
+Nous avons essayez des versions d'eval qui donneraient plus d'informations pour le debbugage avec un code d'erreur plus precis, bien que cela n'a pas ete conserve dans le code final. 
+\begin{lstlisting}[language=Haskell]
+eval env (Dsend func args) =
+    case eval env func of
+        Vfob closureEnv argCount body -> 
+            if length args == argCount then
+                let argVals = map (eval env) args
+                    newEnv = zip (getParams body) argVals ++ closureEnv
+                in eval newEnv body
+            else
+                error "Nombre incorrect d'arguments pour la fonction fob"
+        Vbuiltin func -> func (map (eval env) args)
+        _ -> error "Tentative d'appel sur une expression non fonctionnelle"
+\end{lstlisting}
+l'erreur qu'on obtenait le plus souvent etait : "tentative d'appel sur une expression non fonctionnelle".
+
+
+\section*{Conclusion}
+
+Ce projet nous a appris à construire un langage fonctionnel robuste, à gérer des concepts comme les types et les fonctions récursives, et à corriger nos erreurs en cours de route. Même si tout n’était pas parfait dès le départ, chaque problème rencontré nous a permis de progresser surtout dans la comprehension du fonctionnement de eval, qui nous a pousser a essayer des methodes variees de debugage. Les fonctions fix et fob ont ete notre plus grand defis.
+
+\end{document}
